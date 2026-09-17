@@ -1,0 +1,204 @@
+/* The player's car.
+
+   Physics model: velocity is split into a FORWARD component (along the nose) and
+   a LATERAL component (sideways). Thrust and braking act on forward; "grip"
+   decides how quickly the lateral component dies. Low grip = the car keeps
+   sliding = drift. That one split is the whole arcade feel. */
+
+window.MGS = window.MGS || {};
+
+(function (MGS) {
+  'use strict';
+
+  var util = MGS.util;
+
+  var BASE_TURN = 3.0;          // radians/sec at full speed
+  var CRASH_SPEED = 150;        // impact below this is a bump, above it hurts
+  var CRASH_DAMAGE = 0.13;      // hp lost per pixel/sec of impact over the threshold
+
+  function Player() {
+    this.reset(MGS.vehicleById(MGS.STARTING_CAR), 0, 0);
+    this._scratch = [];
+  }
+
+  Player.prototype.reset = function (vehicle, x, y) {
+    this.vehicle = vehicle;
+    this.x = this.prevX = x;
+    this.y = this.prevY = y;
+    this.angle = -Math.PI / 2;
+    this.vx = 0;
+    this.vy = 0;
+    this.speed = 0;
+    this.maxHp = vehicle.hp;
+    this.hp = vehicle.hp;
+    this.radius = Math.max(vehicle.w, vehicle.h) * 0.42;
+    this.air = 0;             // seconds left in the air after a ramp
+    this.dead = false;
+    this.drowned = false;
+    this.skidding = false;
+    this.boosting = false;
+    this.oilTimer = 0;
+    this.rocketTimer = 0;
+    this.hitFlash = 0;
+    this.stillTimer = 0;      // how long we have been crawling (feeds BUSTED)
+  };
+
+  Player.prototype.damage = function (amount) {
+    if (this.dead) return;
+    this.hp -= amount;
+    this.hitFlash = 0.2;
+    if (this.hp <= 0) {
+      this.hp = 0;
+      this.dead = true;
+    }
+  };
+
+  Player.prototype.update = function (dt, input, world, effects) {
+    if (this.dead) return;
+
+    this.prevX = this.x;
+    this.prevY = this.y;
+
+    var v = this.vehicle;
+    var steer = input.steer();
+    var braking = input.brake();
+    this.boosting = input.boost();
+
+    // --- split velocity into forward / lateral -----------------------------
+    var fx = Math.cos(this.angle), fy = Math.sin(this.angle);
+    var fwd = this.vx * fx + this.vy * fy;
+    var lat = -this.vx * fy + this.vy * fx;
+
+    var topSpeed = v.topSpeed * (this.boosting ? 1.28 : 1);
+    var accel = v.accel * (this.boosting ? 1.45 : 1);
+
+    // --- steering: only bites when you are actually moving -----------------
+    var speedNow = Math.abs(fwd);
+    var gripFactor = util.clamp(speedNow / (v.topSpeed * 0.45), 0, 1);
+    if (steer !== 0 && speedNow > 8) {
+      var dir = fwd < 0 ? -1 : 1;
+      this.angle += steer * BASE_TURN * gripFactor * dir * dt;
+      // Turning scrubs speed off, exactly like the original.
+      fwd *= Math.exp(-0.55 * Math.abs(steer) * dt);
+    }
+
+    // --- throttle / brake ---------------------------------------------------
+    if (braking) {
+      fwd -= v.accel * 1.5 * dt;
+      if (fwd < -v.topSpeed * 0.3) fwd = -v.topSpeed * 0.3;
+    } else {
+      // The car accelerates on its own - you never hold a "go" key.
+      if (fwd < topSpeed) fwd = Math.min(topSpeed, fwd + accel * dt);
+    }
+
+    // Rolling resistance, plus extra drag off-road.
+    var offRoad = !world.isRoad(this.x, this.y) && this.air <= 0;
+    var drag = offRoad ? 1.15 : 0.55;
+    fwd *= Math.exp(-drag * dt);
+
+    // --- grip: kill the sideways slide -------------------------------------
+    var gripRate = this.air > 0 ? v.grip * 0.25 : v.grip;
+    var latBefore = lat;
+    lat = util.damp(lat, 0, gripRate, dt);
+    this.skidding = Math.abs(latBefore) > 90;
+    if (this.skidding && effects && Math.random() < 0.4) {
+      effects.smoke(this.x, this.y, 1, '#b9b2a4');
+    }
+
+    this.vx = fx * fwd - fy * lat;
+    this.vy = fy * fwd + fx * lat;
+    this.speed = Math.hypot(this.vx, this.vy);
+
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+
+    // --- world collisions ---------------------------------------------------
+    if (this.air > 0) {
+      this.air -= dt;
+    } else {
+      this.collide(world, effects);
+    }
+
+    this.stillTimer = this.speed < 90 ? this.stillTimer + dt : 0;
+    this.hitFlash = Math.max(0, this.hitFlash - dt);
+
+    // --- vehicle abilities --------------------------------------------------
+    if (v.ability === 'oil') {
+      this.oilTimer -= dt;
+      if (this.oilTimer <= 0 && this.speed > 60) {
+        this.oilTimer = 0.42;
+        effects.dropSlick(this.x - fx * 30, this.y - fy * 30);
+      }
+    }
+    if (v.ability === 'rockets') {
+      this.rocketTimer -= dt;
+    }
+  };
+
+  Player.prototype.collide = function (world, effects) {
+    var list = world.obstaclesNear(this.x, this.y, this._scratch);
+    for (var i = 0; i < list.length; i++) {
+      var o = list[i];
+
+      if (o.ramp) {
+        if (util.circleRect(this.x, this.y, this.radius, o) && this.speed > 150) {
+          this.air = 0.75;
+          effects.smoke(this.x, this.y, 4, '#d9cdb6');
+        }
+        continue;
+      }
+
+      if (o.deadly) {
+        if (util.circleRect(this.x, this.y, this.radius * 0.6, o)) {
+          this.drowned = true;
+          this.dead = true;
+          effects.smoke(this.x, this.y, 12, '#9fd4f2');
+          effects.shakeBy(14);
+          return;
+        }
+        continue;
+      }
+
+      if (!o.solid) continue;
+
+      var hit = util.resolveCircleRect(this.x, this.y, this.radius, o);
+      if (!hit) continue;
+
+      var impact = Math.abs(this.vx * hit.nx + this.vy * hit.ny);
+
+      if (o.breakable) {
+        o.alive = false;
+        effects.debris(o.x + o.w / 2, o.y + o.h / 2, 8, o.color);
+        MGS.Audio.crash(0.3);
+        this.damage(4);
+        this.vx *= 0.88;
+        this.vy *= 0.88;
+        continue;
+      }
+
+      // Push out of the wall and bounce off it.
+      this.x += hit.nx * hit.push;
+      this.y += hit.ny * hit.push;
+      var dot = this.vx * hit.nx + this.vy * hit.ny;
+      this.vx -= hit.nx * dot * 1.35;
+      this.vy -= hit.ny * dot * 1.35;
+      this.vx *= 0.62;
+      this.vy *= 0.62;
+
+      if (impact > CRASH_SPEED) {
+        var dmg = (impact - CRASH_SPEED) * CRASH_DAMAGE;
+        this.damage(dmg);
+        effects.debris(this.x, this.y, 6, '#d8d2c4');
+        effects.shakeBy(Math.min(16, impact * 0.03));
+        MGS.Audio.crash(util.clamp(impact / 600, 0.15, 1));
+      }
+    }
+  };
+
+  /* Where the car will be in `t` seconds - used by pursuers to lead their aim. */
+  Player.prototype.predict = function (t) {
+    return { x: this.x + this.vx * t, y: this.y + this.vy * t };
+  };
+
+  MGS.Player = Player;
+})(window.MGS);
