@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>MGS Getaway</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<canvas id="game" aria-label="Game canvas"></canvas>
+
+<!-- ===== MAIN MENU ===== -->
+<section id="screen-menu" class="screen">
+  <div class="panel">
+    <h1 class="logo">MGS<span>GETAWAY</span></h1>
+    <p class="tag">Steal the road. Outrun the heat. Never stop.</p>
+    <button class="btn btn-big" data-action="drive">PRESS ENTER TO DRIVE</button>
+    <div class="row">
+      <button class="btn" data-action="garage">GARAGE</button>
+      <button class="btn" data-action="howto">HOW TO PLAY</button>
+      <button class="btn" data-action="mute">SOUND: ON</button>
+    </div>
+    <dl class="stats">
+      <div><dt>BEST SCORE</dt><dd data-bind="best">0</dd></div>
+      <div><dt>CASH</dt><dd data-bind="cash">0</dd></div>
+      <div><dt>CARS OWNED</dt><dd data-bind="owned">1 / 24</dd></div>
+    </dl>
+    <p class="fine">Everything is unlocked by driving. No ads, no purchases, ever.</p>
+  </div>
+</section>
+
+<!-- ===== HOW TO PLAY ===== -->
+<section id="screen-howto" class="screen hidden">
+  <div class="panel">
+    <h2>HOW TO PLAY</h2>
+    <table class="keys">
+      <tr><th>&larr; / A</th><td>Steer left</td></tr>
+      <tr><th>&rarr; / D</th><td>Steer right</td></tr>
+      <tr><th>&uarr; / W</th><td>Boost</td></tr>
+      <tr><th>&darr; / S</th><td>Brake / reverse</td></tr>
+      <tr><th>P / ESC</th><td>Pause</td></tr>
+      <tr><th>M</th><td>Mute</td></tr>
+    </table>
+    <ul class="tips">
+      <li>The car drives itself &mdash; you only steer. Turning bleeds speed.</li>
+      <li>Score rises while you survive. Smashing a pursuer is worth +30.</li>
+      <li>Every 30 / 80 / 150 / 250 / 400 points the heat goes up a star.</li>
+      <li>Grab green cash on the road. Spend it in the garage.</li>
+      <li>Water is instant death &mdash; but cops drown in it too.</li>
+      <li>Ramps launch you. Sit still next to cops and you get BUSTED.</li>
+    </ul>
+    <button class="btn" data-action="menu">BACK</button>
+  </div>
+</section>
+
+<!-- ===== GARAGE ===== -->
+<section id="screen-garage" class="screen hidden">
+  <div class="panel panel-wide">
+    <header class="garage-head">
+      <h2>GARAGE</h2>
+      <div class="wallet">CASH <strong data-bind="cash">0</strong></div>
+    </header>
+    <div class="garage-grid" data-bind="garage-grid"></div>
+    <footer class="garage-foot">
+      <button class="btn" data-action="spin">MYSTERY CRATE &mdash; 100 CASH</button>
+      <span class="spin-msg" data-bind="spin-msg"></span>
+      <button class="btn" data-action="menu">BACK</button>
+    </footer>
+  </div>
+</section>
+
+<!-- ===== RESULTS ===== -->
+<section id="screen-results" class="screen hidden">
+  <div class="panel">
+    <h1 class="verdict" data-bind="verdict">BUSTED</h1>
+    <dl class="stats stats-big">
+      <div><dt>SCORE</dt><dd data-bind="r-score">0</dd></div>
+      <div><dt>BEST</dt><dd data-bind="r-best">0</dd></div>
+      <div><dt>CASH EARNED</dt><dd data-bind="r-cash">0</dd></div>
+      <div><dt>TOP HEAT</dt><dd data-bind="r-heat">1</dd></div>
+    </dl>
+    <p class="unlock-msg" data-bind="r-unlock"></p>
+    <div class="row">
+      <button class="btn btn-big" data-action="drive">RETRY</button>
+      <button class="btn" data-action="garage">GARAGE</button>
+      <button class="btn" data-action="menu">MENU</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===== PAUSE ===== -->
+<section id="screen-pause" class="screen hidden">
+  <div class="panel">
+    <h2>PAUSED</h2>
+    <div class="row">
+      <button class="btn btn-big" data-action="resume">RESUME</button>
+      <button class="btn" data-action="menu">QUIT TO MENU</button>
+    </div>
+  </div>
+</section>
+
+<footer id="credits">
+  Fan-made student project &mdash; not affiliated with Bearbit Studios B.V.
+</footer>
+
+<!-- Load order matters: plain scripts so the game runs from file:// with no build step. -->
+<script src="src/core/utils.js"></script>
+<script src="src/core/input.js"></script>
+<script src="src/core/audio.js"></script>
+<script src="src/data/vehicles.js"></script>
+<script src="src/systems/economy.js"></script>
+<script src="src/systems/effects.js"></script>
+<script src="src/world/world.js"></script>
+<script src="src/entities/player.js"></script>
+<script src="src/entities/traffic.js"></script>
+<script src="src/entities/pursuit.js"></script>
+<script src="src/systems/wanted.js"></script>
+<script src="src/render/renderer.js"></script>
+<script src="src/ui/ui.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

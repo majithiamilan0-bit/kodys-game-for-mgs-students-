@@ -1,0 +1,316 @@
+/* MGS Getaway - chunky arcade UI to match the blocky in-game art. */
+
+:root {
+  --ink: #0d1117;
+  --paper: #f4f1e8;
+  --hot: #ff4b3e;
+  --gold: #ffc531;
+  --green: #35c66b;
+  --steel: #2b3440;
+  --shadow: #00000055;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#game {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  touch-action: none;
+}
+
+/* ---------- screens ---------- */
+
+.screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(circle at 50% 35%, #1b2330ee, #080b10f5 70%);
+  z-index: 10;
+  overflow-y: auto;
+}
+
+.screen.hidden { display: none; }
+
+.panel {
+  width: min(560px, 100%);
+  background: var(--steel);
+  border: 4px solid #121820;
+  border-radius: 10px;
+  box-shadow: 0 12px 0 #12182088, 0 24px 48px #0008;
+  padding: 28px;
+  text-align: center;
+}
+
+.panel-wide { width: min(940px, 100%); }
+
+/* ---------- type ---------- */
+
+.logo {
+  margin: 0 0 4px;
+  font-size: clamp(40px, 9vw, 72px);
+  line-height: 0.92;
+  letter-spacing: 2px;
+  font-weight: 900;
+  color: var(--gold);
+  text-shadow: 0 5px 0 #00000066;
+}
+.logo span { display: block; color: var(--hot); }
+
+.tag {
+  margin: 0 0 22px;
+  opacity: 0.75;
+  letter-spacing: 1px;
+  font-size: 14px;
+  text-transform: uppercase;
+}
+
+h2 {
+  margin: 0 0 18px;
+  letter-spacing: 3px;
+  font-size: 24px;
+  text-transform: uppercase;
+}
+
+.verdict {
+  margin: 0 0 18px;
+  font-size: clamp(44px, 11vw, 84px);
+  font-weight: 900;
+  letter-spacing: 4px;
+  color: var(--hot);
+  text-shadow: 0 6px 0 #00000055;
+}
+
+.fine {
+  margin: 18px 0 0;
+  font-size: 12px;
+  opacity: 0.55;
+  letter-spacing: 0.5px;
+}
+
+.unlock-msg {
+  min-height: 20px;
+  margin: 8px 0 18px;
+  color: var(--gold);
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+/* ---------- buttons ---------- */
+
+.btn {
+  appearance: none;
+  border: 3px solid #121820;
+  border-radius: 8px;
+  background: #3a4757;
+  color: var(--paper);
+  font: inherit;
+  font-weight: bold;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 12px 18px;
+  cursor: pointer;
+  box-shadow: 0 5px 0 #121820;
+  transition: transform 0.06s ease, box-shadow 0.06s ease, background 0.12s ease;
+}
+
+.btn:hover:not(:disabled) { background: #48586b; }
+.btn:active:not(:disabled) { transform: translateY(4px); box-shadow: 0 1px 0 #121820; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-big {
+  background: var(--hot);
+  font-size: 18px;
+  padding: 16px 26px;
+  width: 100%;
+}
+.btn-big:hover:not(:disabled) { background: #ff6154; }
+
+.row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+/* ---------- stat blocks ---------- */
+
+.stats {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 22px 0 0;
+}
+
+.stats > div {
+  flex: 1 1 120px;
+  background: #222b36;
+  border-radius: 8px;
+  padding: 10px 8px;
+}
+
+.stats dt {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  opacity: 0.6;
+  text-transform: uppercase;
+}
+
+.stats dd {
+  margin: 4px 0 0;
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--gold);
+}
+
+.stats-big dd { font-size: 30px; }
+
+/* ---------- how to play ---------- */
+
+.keys {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 18px;
+  text-align: left;
+}
+.keys th {
+  width: 110px;
+  padding: 7px 10px;
+  background: #222b36;
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--gold);
+}
+.keys td { padding: 7px 12px; font-size: 14px; opacity: 0.85; }
+
+.tips {
+  text-align: left;
+  margin: 0 0 20px;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.7;
+  opacity: 0.85;
+}
+
+/* ---------- garage ---------- */
+
+.garage-head,
+.garage-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.garage-head { margin-bottom: 16px; }
+.garage-head h2 { margin: 0; }
+.garage-foot { margin-top: 16px; }
+
+.wallet { font-size: 13px; letter-spacing: 2px; opacity: 0.7; }
+.wallet strong { color: var(--green); font-size: 20px; margin-left: 6px; }
+
+.spin-msg {
+  flex: 1 1 160px;
+  font-size: 13px;
+  color: var(--gold);
+  letter-spacing: 1px;
+  min-height: 16px;
+}
+
+.garage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  max-height: 58vh;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.car-card {
+  background: #222b36;
+  border: 3px solid #121820;
+  border-radius: 8px;
+  padding: 10px 8px;
+  cursor: pointer;
+  text-align: center;
+  transition: transform 0.08s ease, border-color 0.12s ease;
+}
+.car-card:hover { transform: translateY(-3px); }
+.car-card.selected { border-color: var(--gold); }
+.car-card.locked { opacity: 0.72; }
+
+.car-card canvas { display: block; margin: 0 auto 6px; image-rendering: pixelated; }
+
+.car-name {
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.car-rarity {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.r-common { color: #9fb0c2; }
+.r-rare { color: #4fa8f5; }
+.r-epic { color: #b978f0; }
+.r-legendary { color: var(--gold); }
+
+.car-bars { display: grid; gap: 3px; margin-bottom: 8px; }
+.car-bar { display: flex; align-items: center; gap: 5px; font-size: 8px; opacity: 0.7; }
+.car-bar span { width: 30px; text-align: left; letter-spacing: 0.5px; }
+.car-bar i { flex: 1; height: 5px; background: #121820; border-radius: 3px; overflow: hidden; }
+.car-bar i b { display: block; height: 100%; background: var(--green); }
+
+.car-action {
+  width: 100%;
+  font-size: 11px;
+  padding: 7px 4px;
+  letter-spacing: 1px;
+  box-shadow: 0 3px 0 #121820;
+}
+.car-action.buy { background: var(--green); }
+.car-action.equipped { background: var(--gold); color: var(--ink); }
+.car-action.mission { background: #45506080; font-size: 9px; }
+
+/* ---------- credits ---------- */
+
+#credits {
+  position: fixed;
+  bottom: 6px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 1px;
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 20;
+}
+
+@media (max-width: 480px) {
+  .panel { padding: 18px; }
+  .garage-grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); }
+}
