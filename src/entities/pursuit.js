@@ -12,14 +12,16 @@ window.MGS = window.MGS || {};
 
   var util = MGS.util;
 
+  /* Pursuers are deliberately slower than almost every player car - they win by
+     numbers, roadblocks and boxing you in, not by out-running you. */
   var TYPES = {
-    police: { hp: 3, top: 405, accel: 330, turn: 2.6, w: 48, h: 27,
+    police: { hp: 3, top: 332, accel: 270, turn: 2.4, w: 48, h: 27,
               body: '#22429b', roof: '#e8edf4', trim: '#12203f', ram: 9 },
-    swat:   { hp: 8, top: 398, accel: 300, turn: 2.3, w: 55, h: 31,
+    swat:   { hp: 8, top: 326, accel: 250, turn: 2.1, w: 55, h: 31,
               body: '#232d3a', roof: '#39485c', trim: '#0f151d', ram: 14 },
-    army:   { hp: 14, top: 388, accel: 280, turn: 2.0, w: 59, h: 34,
+    army:   { hp: 14, top: 318, accel: 235, turn: 1.9, w: 59, h: 34,
               body: '#4e5a33', roof: '#68764a', trim: '#2a3020', ram: 20 },
-    tank:   { hp: 34, top: 250, accel: 150, turn: 1.2, w: 64, h: 48,
+    tank:   { hp: 34, top: 214, accel: 130, turn: 1.1, w: 64, h: 48,
               body: '#404a2c', roof: '#59653c', trim: '#232a18', ram: 34, shoots: true }
   };
 
@@ -34,7 +36,8 @@ window.MGS = window.MGS || {};
   ];
 
   var SPAWN_RING = 1250;
-  var SCORE_PER_KILL = 30;
+  /* Score is seconds survived, so wrecking a pursuer pays in cash instead. */
+  var CASH_PER_KILL = 8;
 
   /* --- pools -------------------------------------------------------------- */
 
@@ -132,11 +135,11 @@ window.MGS = window.MGS || {};
 
   /* --- per-unit AI --------------------------------------------------------- */
 
-  function steerUnit(u, dt, player, world, effects, level) {
+  function steerUnit(u, dt, player, world, effects, level, slowMult) {
     var t = TYPES[u.type];
 
     if (u.spin > 0) {
-      // Hit an oil slick: no control until it wears off.
+      // Hit oil or ice, or caught an EMP: no control until it wears off.
       u.spin -= dt;
       u.angle += 9 * dt;
       u.speed *= Math.exp(-2.2 * dt);
@@ -146,8 +149,16 @@ window.MGS = window.MGS || {};
       var pred = player.predict(lead);
       var tx = pred.x, ty = pred.y;
 
-      // From heat 3 the pack spreads out and tries to box the player in.
-      if (level >= 3 && !u.blocker) {
+      // A dropped decoy pulls them off you entirely.
+      var decoy = MGS.Hazards.nearestDecoy(u.x, u.y, 620);
+      if (decoy) { tx = decoy.x; ty = decoy.y; }
+
+      // Ghost Protocol / the PHASE power-up: they lose you and scatter.
+      if (player.ab.stealth > 0) {
+        tx = u.x + Math.cos(u.offsetAngle * 3) * 400;
+        ty = u.y + Math.sin(u.offsetAngle * 3) * 400;
+      } else if (level >= 3 && !u.blocker) {
+        // From heat 3 the pack spreads out and tries to box the player in.
         var ring = 130;
         tx += Math.cos(u.offsetAngle) * ring;
         ty += Math.sin(u.offsetAngle) * ring;
@@ -181,14 +192,9 @@ window.MGS = window.MGS || {};
 
     u.prevX = u.x;
     u.prevY = u.y;
-    u.x += Math.cos(u.angle) * u.speed * dt;
-    u.y += Math.sin(u.angle) * u.speed * dt;
+    u.x += Math.cos(u.angle) * u.speed * slowMult * dt;
+    u.y += Math.sin(u.angle) * u.speed * slowMult * dt;
     u.hitFlash = Math.max(0, u.hitFlash - dt);
-
-    if (effects.slickAt(u.x, u.y) && u.spin <= 0) {
-      u.spin = 2.2;
-      effects.smoke(u.x, u.y, 4, '#2a2f38');
-    }
   }
 
   function unitHitsWorld(u, world, effects) {
@@ -230,7 +236,7 @@ window.MGS = window.MGS || {};
   var Pursuit = {
     units: units,
     shells: shells,
-    SCORE_PER_KILL: SCORE_PER_KILL,
+    CASH_PER_KILL: CASH_PER_KILL,
 
     reset: function (seed) {
       units.clear();
@@ -269,12 +275,16 @@ window.MGS = window.MGS || {};
         }
       }
 
+      // Time Warp and the FREEZE power-up both just slow everyone else down.
+      var slowMult = (player.ab.warp > 0 ? 0.35 : 1) * MGS.Powerups.enemySlow();
+
       // --- ground units -----------------------------------------------------
       for (i = 0; i < list.length; i++) {
         u = list[i];
-        steerUnit(u, dt, player, world, effects, level);
+        steerUnit(u, dt, player, world, effects, level, slowMult);
 
         if (unitHitsWorld(u, world, effects) === 'drowned') {
+          MGS.Objectives.note('drown');
           Pursuit.kill(u, effects, cb);
           continue;
         }
@@ -307,31 +317,46 @@ window.MGS = window.MGS || {};
         }
 
         // Contact with the player.
-        if (!player.dead && player.air <= 0) {
+        if (!player.dead && player.air <= 0 && !MGS.Powerups.phasing()) {
           var reach = player.radius + Math.max(u.w, u.h) * 0.42;
           if (util.dist2(u.x, u.y, player.x, player.y) < reach * reach) {
-            var rammer = player.vehicle.ability === 'ram';
             var rel = Math.hypot(player.vx - Math.cos(u.angle) * u.speed,
                                  player.vy - Math.sin(u.angle) * u.speed);
 
-            if (rammer) {
+            if (MGS.Abilities.killsOnContact(player)) {
+              if (u.blocker) MGS.Objectives.note('blocker');
               Pursuit.kill(u, effects, cb);
               continue;
             }
 
             // Both sides take it. Hitting them hard and fast wins the trade.
-            var playerForce = player.speed;
-            u.hp -= playerForce > 260 ? 2 : 1;
+            var dealt = (player.speed > 260 ? 2 : 1) * MGS.Abilities.contactDamageMult(player);
+            u.hp -= dealt;
             u.hitFlash = 0.15;
             u.speed *= 0.5;
-            player.damage(util.clamp(TYPES[u.type].ram * (0.5 + rel / 700), 3, 40));
+
+            if (MGS.Abilities.knocksAside(player)) {
+              // The limo flings them clear instead of trading paint.
+              var away = Math.atan2(u.y - player.y, u.x - player.x);
+              u.x += Math.cos(away) * 46;
+              u.y += Math.sin(away) * 46;
+              u.spin = 1.4;
+              player.damage(util.clamp(TYPES[u.type].ram * 0.25, 1, 10));
+            } else {
+              player.damage(util.clamp(TYPES[u.type].ram * (0.5 + rel / 700), 3, 40));
+            }
+
             player.vx *= 0.82;
             player.vy *= 0.82;
             effects.debris(player.x, player.y, 5, '#e2dccb');
             effects.shakeBy(7);
             MGS.Audio.crash(util.clamp(rel / 700, 0.2, 1));
             if (cb && cb.onPlayerHit) cb.onPlayerHit();
-            if (u.hp <= 0) { Pursuit.kill(u, effects, cb); continue; }
+            if (u.hp <= 0) {
+              if (u.blocker) MGS.Objectives.note('blocker');
+              Pursuit.kill(u, effects, cb);
+              continue;
+            }
           }
         }
       }
@@ -448,10 +473,11 @@ window.MGS = window.MGS || {};
     },
 
     kill: function (u, effects, cb) {
+      if (!u.alive) return;
       units.release(u);
       effects.explosion(u.x, u.y, u.type === 'tank' ? 1.4 : 1);
       MGS.Audio.explosion();
-      effects.popText(u.x, u.y - 20, '+' + SCORE_PER_KILL);
+      effects.popText(u.x, u.y - 20, '+$' + CASH_PER_KILL);
       if (cb && cb.onKill) cb.onKill(u);
     },
 

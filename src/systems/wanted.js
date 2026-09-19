@@ -1,7 +1,10 @@
 /* Score, the six-star heat ladder, and the BUSTED meter.
 
-   Heat only ever climbs during a run - surviving longer IS the difficulty curve.
-   Thresholds are the dial to turn if the game ramps too fast or too slow. */
+   SCORE IS SECONDS SURVIVED - one point per second, nothing else adds to it.
+   That makes the whole game legible: your score is literally how long you lasted,
+   and the heat thresholds below are just "how many seconds until it gets worse".
+
+   Heat only ever climbs during a run - surviving longer IS the difficulty curve. */
 
 window.MGS = window.MGS || {};
 
@@ -10,7 +13,8 @@ window.MGS = window.MGS || {};
 
   var util = MGS.util;
 
-  var THRESHOLDS = [0, 30, 80, 150, 250, 400];
+  // Seconds survived before each heat level kicks in.
+  var THRESHOLDS = [0, 40, 90, 150, 220, 300];
   var LABELS = ['PATROL', 'PURSUIT', 'SWAT', 'LOCKDOWN', 'MILITARY', 'ALL-OUT WAR'];
 
   var BUST_RADIUS = 210;     // how close a cop has to be to count as cornering you
@@ -36,10 +40,7 @@ window.MGS = window.MGS || {};
 
     label: function () { return LABELS[this.level - 1]; },
 
-    addKill: function () {
-      this.kills += 1;
-      this.score += MGS.Pursuit.SCORE_PER_KILL;
-    },
+    addKill: function () { this.kills += 1; },
 
     levelFor: function (score) {
       var lvl = 1;
@@ -49,11 +50,15 @@ window.MGS = window.MGS || {};
       return lvl;
     },
 
+    /* Seconds remaining until the next heat level, for the HUD countdown. */
+    nextIn: function () {
+      if (this.level >= 6) return 0;
+      return Math.max(0, Math.ceil(THRESHOLDS[this.level] - this.score));
+    },
+
     /* Returns 'busted' when the player has been pinned down long enough. */
     update: function (dt, player, pursuitUnits) {
-      // Crawling earns less: you have to keep moving to keep scoring.
-      var rate = player.speed > 40 ? 2.5 : 1.0;
-      this.score += rate * dt;
+      this.score += dt;
 
       var next = this.levelFor(this.score);
       if (next > this.level) {

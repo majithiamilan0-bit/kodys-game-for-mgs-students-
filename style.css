@@ -278,6 +278,17 @@ h2 {
 .r-epic { color: #b978f0; }
 .r-legendary { color: var(--gold); }
 
+.car-power {
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--gold);
+  margin-bottom: 6px;
+  min-height: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .car-bars { display: grid; gap: 3px; margin-bottom: 8px; }
 .car-bar { display: flex; align-items: center; gap: 5px; font-size: 8px; opacity: 0.7; }
 .car-bar span { width: 30px; text-align: left; letter-spacing: 0.5px; }
@@ -294,6 +305,88 @@ h2 {
 .car-action.buy { background: var(--green); }
 .car-action.equipped { background: var(--gold); color: var(--ink); }
 .car-action.mission { background: #45506080; font-size: 9px; }
+
+/* ---------- mystery crate slot machine ---------- */
+
+.slot-panel { width: min(520px, 100%); }
+
+.slot-machine {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 10px;
+  margin: 8px 0 18px;
+  background: #151a21;
+  border: 4px solid #0b0e13;
+  border-radius: 10px;
+  box-shadow: inset 0 0 26px #000a;
+}
+
+.reel {
+  flex: 1;
+  height: 92px;
+  overflow: hidden;
+  background: #0d1117;
+  border-radius: 6px;
+}
+
+.reel-strip {
+  display: block;
+  will-change: transform;
+}
+
+.reel-cell {
+  height: 92px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  letter-spacing: 1px;
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.reel-cell b { font-size: 26px; line-height: 1; margin-bottom: 4px; }
+
+.slot-line {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  top: 50%;
+  height: 3px;
+  margin-top: -1.5px;
+  background: linear-gradient(90deg, transparent, var(--hot), transparent);
+  pointer-events: none;
+}
+
+.slot-reveal {
+  min-height: 92px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: 14px;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.slot-reveal.shown { opacity: 1; transform: scale(1); }
+
+.slot-reveal .won-name {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 1px;
+}
+
+.slot-reveal .won-power {
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  color: var(--gold);
+}
 
 /* ---------- credits ---------- */
 

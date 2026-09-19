@@ -90,17 +90,40 @@ window.MGS = window.MGS || {};
     ctx.restore();
   }
 
-  /* A car: ground shadow, dark chassis, then the body lifted by the same
-     parallax offset the buildings use so it reads as a solid block. */
-  function drawCar(x, y, angle, spec, flash, lift) {
+  var ANIM_DEFAULT = { t: 0, speed01: 0, wheelSpin: 0, steer: 0, drift01: 0, turret: 0 };
+
+  /* Reused every frame for traffic and police so drawing allocates nothing. */
+  var npcSpec = { w: 48, h: 27, body: '#ccc', roof: '#2c333d', trim: '#1b2028', anim: null };
+  var npcAnim = { t: 0, speed01: 0, wheelSpin: 0, steer: 0, roll: 0, drift01: 0, turret: 0 };
+
+  function npcState(speed, maxSpeed) {
+    var t = performance.now() / 1000;
+    npcAnim.t = t;
+    npcAnim.speed01 = Math.min(1, speed / maxSpeed);
+    npcAnim.wheelSpin = (t * speed * 0.09) % 1;
+    return npcAnim;
+  }
+
+  /* A car: ground shadow, spinning wheels, dark chassis, then the body lifted by
+     the same parallax offset the buildings use so it reads as a solid block, and
+     finally that car's own unique animated flourish on top. */
+  function drawCar(x, y, angle, spec, flash, lift, st) {
     var w = spec.w, h = spec.h;
     var height = lift == null ? 26 : lift;
+    st = st || ANIM_DEFAULT;
 
     ctx.save();
     ctx.translate(x + 7, y + 9);
     ctx.rotate(angle);
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
     ctx.fillRect(-w / 2, -h / 2, w, h);
+    ctx.restore();
+
+    // Wheels sit under the body, on the ground plane.
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    MGS.CarAnims.drawWheels(ctx, spec, st);
     ctx.restore();
 
     rotatedRect(x, y, angle, w, h, shade(spec.body, 0.55));
@@ -112,6 +135,8 @@ window.MGS = window.MGS || {};
     ctx.save();
     ctx.translate(x + ox, y + oy);
     ctx.rotate(angle);
+    // Body roll: the shell leans away from the corner you are taking.
+    ctx.translate(0, st.roll ? st.roll * h * 0.13 : 0);
 
     ctx.fillStyle = flash > 0 ? '#ffffff' : spec.body;
     ctx.fillRect(-w / 2, -h / 2, w, h);
@@ -124,6 +149,8 @@ window.MGS = window.MGS || {};
     ctx.fillStyle = spec.trim;
     ctx.fillRect(w * 0.24, -h * 0.34, w * 0.1, h * 0.68);
     ctx.fillRect(-w * 0.46, -h * 0.4, w * 0.08, h * 0.8);
+
+    if (spec.anim) MGS.CarAnims.drawFlourish(ctx, spec, st);
 
     ctx.restore();
   }
@@ -170,8 +197,9 @@ window.MGS = window.MGS || {};
 
       Renderer.drawGround(world, view);
       Renderer.drawRoads(world, view);
-      Renderer.drawSlicks(effects);
+      Renderer.drawHazards();
       Renderer.drawPickups(world, view);
+      Renderer.drawCrates(world, view);
       Renderer.drawObstacles(world, view, false);
 
       // Cars sit between the flat world and the tall buildings, so buildings
@@ -180,7 +208,8 @@ window.MGS = window.MGS || {};
       Renderer.drawUnits(view);
       if (player && (!player.dead || state.deathFade < 0.6)) {
         drawCar(player.x, player.y, player.angle, player.vehicle, player.hitFlash,
-          player.air > 0 ? 70 : 26);
+          player.air > 0 ? 70 : 26, Renderer.playerAnim(player));
+        Renderer.drawPlayerAura(player);
       }
 
       Renderer.drawObstacles(world, view, true);
@@ -196,7 +225,66 @@ window.MGS = window.MGS || {};
         ctx.fillRect(0, 0, cssW, cssH);
       }
 
-      if (state.hud) Renderer.drawHud(state);
+      if (state.hud) {
+        Renderer.drawHud(state);
+        Renderer.drawMinimap(state);
+      }
+    },
+
+    /* Animation state for the player's car, including the Salvo turret angle. */
+    playerAnim: function (player) {
+      var turret = 0;
+      if (player.vehicle.anim === 'turret') {
+        var target = MGS.Pursuit.nearest(player.x, player.y, 1400);
+        if (target) {
+          turret = Math.atan2(target.y - player.y, target.x - player.x) - player.angle;
+        }
+      }
+      return {
+        t: performance.now() / 1000,
+        speed01: util.clamp(player.speed / player.vehicle.topSpeed, 0, 1),
+        wheelSpin: player.wheelSpin % 1,
+        steer: player.steerInput,
+        roll: player.bodyRoll,
+        drift01: util.clamp(player.drift / 220, 0, 1),
+        turret: turret
+      };
+    },
+
+    /* Rings around the car for active power-ups and shields. */
+    drawPlayerAura: function (player) {
+      var t = performance.now() / 1000;
+      var r = player.radius + 16;
+
+      if (MGS.Powerups.has('shield')) {
+        ctx.strokeStyle = 'rgba(53,198,107,' + (0.5 + 0.3 * Math.sin(t * 8)).toFixed(2) + ')';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, r + 6, 0, MGS.TAU);
+        ctx.stroke();
+      }
+      if (player.ab.shield) {
+        ctx.strokeStyle = 'rgba(134,210,185,0.55)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, r, 0, MGS.TAU);
+        ctx.stroke();
+      }
+      if (player.ab.empRing > 0) {
+        var grow = 1 - player.ab.empRing / 0.5;
+        ctx.strokeStyle = 'rgba(120,200,255,' + (1 - grow).toFixed(2) + ')';
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, 40 + grow * 260, 0, MGS.TAU);
+        ctx.stroke();
+      }
+      if (player.ab.warp > 0) {
+        ctx.strokeStyle = 'rgba(108,224,255,0.4)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, r + 10 + Math.sin(t * 5) * 6, 0, MGS.TAU);
+        ctx.stroke();
+      }
     },
 
     drawGround: function (world, view) {
@@ -257,12 +345,32 @@ window.MGS = window.MGS || {};
           if (tall !== tallPass) continue;
 
           if (o.kind === 'water') {
-            ctx.fillStyle = o.color;
+            var wt = performance.now() / 1000;
+
+            // Hazard border first - water is instant death, so it gets a hard
+            // edge you can pick out from across the screen.
+            ctx.fillStyle = '#0b3550';
+            ctx.fillRect(o.x - 7, o.y - 7, o.w + 14, o.h + 14);
+
+            // Bright body.
+            ctx.fillStyle = '#1a9be0';
             ctx.fillRect(o.x, o.y, o.w, o.h);
-            ctx.fillStyle = 'rgba(255,255,255,0.14)';
-            for (var s = 0; s < o.h; s += 26) {
-              ctx.fillRect(o.x + 10 + (s % 52), o.y + s, o.w * 0.35, 5);
+            ctx.fillStyle = '#38b6f0';
+            ctx.fillRect(o.x + o.w * 0.08, o.y + o.h * 0.08, o.w * 0.84, o.h * 0.84);
+
+            // Rolling waves.
+            ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            for (var wy = 12; wy < o.h - 6; wy += 22) {
+              var shift = Math.sin(wt * 1.6 + wy * 0.09) * 14;
+              ctx.fillRect(o.x + 14 + shift, o.y + wy, o.w * 0.3, 4);
+              ctx.fillRect(o.x + o.w * 0.55 - shift, o.y + wy + 9, o.w * 0.24, 4);
             }
+
+            // Foam lapping at the edges.
+            var foam = 0.55 + 0.25 * Math.sin(wt * 3);
+            ctx.strokeStyle = 'rgba(255,255,255,' + foam.toFixed(2) + ')';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(o.x + 2, o.y + 2, o.w - 4, o.h - 4);
             continue;
           }
 
@@ -299,14 +407,107 @@ window.MGS = window.MGS || {};
       }
     },
 
-    drawSlicks: function (effects) {
-      var list = effects.slicks.active;
-      ctx.fillStyle = 'rgba(18,20,26,0.72)';
+    /* Oil, ice, fire, mines and decoys all look completely different. */
+    drawHazards: function () {
+      var list = MGS.Hazards.pool.active;
+      var t = performance.now() / 1000;
+
       for (var i = 0; i < list.length; i++) {
-        var s = list[i];
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, s.r * Math.min(1, s.life), 0, MGS.TAU);
-        ctx.fill();
+        var h = list[i];
+        var fade = Math.min(1, h.life / 1.5);
+
+        if (h.kind === 'oil') {
+          ctx.fillStyle = 'rgba(18,20,26,' + (0.72 * fade).toFixed(2) + ')';
+          ctx.beginPath();
+          ctx.arc(h.x, h.y, h.r, 0, MGS.TAU);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(90,120,160,' + (0.25 * fade).toFixed(2) + ')';
+          ctx.beginPath();
+          ctx.arc(h.x - h.r * 0.25, h.y - h.r * 0.25, h.r * 0.3, 0, MGS.TAU);
+          ctx.fill();
+
+        } else if (h.kind === 'ice') {
+          ctx.fillStyle = 'rgba(191,233,255,' + (0.65 * fade).toFixed(2) + ')';
+          ctx.beginPath();
+          ctx.arc(h.x, h.y, h.r, 0, MGS.TAU);
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,' + (0.7 * fade).toFixed(2) + ')';
+          ctx.lineWidth = 2;
+          for (var s = 0; s < 3; s++) {
+            var a = s * (Math.PI / 3);
+            ctx.beginPath();
+            ctx.moveTo(h.x - Math.cos(a) * h.r * 0.7, h.y - Math.sin(a) * h.r * 0.7);
+            ctx.lineTo(h.x + Math.cos(a) * h.r * 0.7, h.y + Math.sin(a) * h.r * 0.7);
+            ctx.stroke();
+          }
+
+        } else if (h.kind === 'fire') {
+          var flick = 0.7 + 0.3 * Math.sin(t * 24 + h.x);
+          ctx.fillStyle = 'rgba(255,110,30,' + (0.65 * fade * flick).toFixed(2) + ')';
+          ctx.beginPath();
+          ctx.arc(h.x, h.y, h.r * flick, 0, MGS.TAU);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(255,220,120,' + (0.7 * fade).toFixed(2) + ')';
+          ctx.beginPath();
+          ctx.arc(h.x, h.y, h.r * 0.45 * flick, 0, MGS.TAU);
+          ctx.fill();
+
+        } else if (h.kind === 'mine') {
+          var blink = Math.floor(t * 4) % 2 === 0;
+          ctx.fillStyle = '#2b3138';
+          ctx.fillRect(h.x - 9, h.y - 9, 18, 18);
+          ctx.fillStyle = blink ? '#ff4b3e' : '#7a2b25';
+          ctx.fillRect(h.x - 4, h.y - 4, 8, 8);
+
+        } else if (h.kind === 'decoy') {
+          ctx.globalAlpha = 0.55 * fade;
+          ctx.fillStyle = '#e2dccb';
+          ctx.fillRect(h.x - 22, h.y - 13, 44, 26);
+          ctx.globalAlpha = 1;
+          ctx.strokeStyle = 'rgba(226,220,203,' + (0.8 * fade).toFixed(2) + ')';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(h.x - 26, h.y - 17, 52, 34);
+        }
+      }
+    },
+
+    /* Power-up crates: blue boxes with a pulsing glow so they read at speed. */
+    drawCrates: function (world, view) {
+      var chunks = world.activeChunks();
+      var t = performance.now() / 1000;
+      var pulse = 0.5 + 0.5 * Math.sin(t * 4);
+
+      for (var i = 0; i < chunks.length; i++) {
+        var list = chunks[i].crates;
+        for (var j = 0; j < list.length; j++) {
+          var c = list[j];
+          if (c.taken) continue;
+          if (c.x < view.x0 || c.x > view.x1 || c.y < view.y0 || c.y > view.y1) continue;
+
+          var spec = MGS.Powerups.TYPES[c.type];
+          var color = spec ? spec.color : '#4fa8f5';
+          var bob = Math.sin(t * 3 + c.x * 0.01) * 3;
+
+          ctx.fillStyle = 'rgba(0,0,0,0.3)';
+          ctx.fillRect(c.x - 17, c.y - 15, 34, 30);
+
+          ctx.fillStyle = 'rgba(79,168,245,' + (0.25 + pulse * 0.35).toFixed(2) + ')';
+          ctx.beginPath();
+          ctx.arc(c.x, c.y + bob, 30 + pulse * 8, 0, MGS.TAU);
+          ctx.fill();
+
+          ctx.fillStyle = '#2f6fd0';
+          ctx.fillRect(c.x - 17, c.y - 17 + bob, 34, 32);
+          ctx.fillStyle = color;
+          ctx.fillRect(c.x - 12, c.y - 12 + bob, 24, 22);
+
+          ctx.fillStyle = '#0d1117';
+          ctx.font = 'bold 15px Trebuchet MS, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(c.type === 'mystery' ? '?' : (spec ? spec.icon : '?'),
+            c.x, c.y + 5 + bob);
+          ctx.textAlign = 'left';
+        }
       }
     },
 
@@ -315,8 +516,10 @@ window.MGS = window.MGS || {};
       for (var i = 0; i < list.length; i++) {
         var c = list[i];
         if (c.x < view.x0 || c.x > view.x1 || c.y < view.y0 || c.y > view.y1) continue;
-        drawCar(c.x, c.y, c.angle,
-          { w: c.w, h: c.h, body: c.color, roof: '#2c333d', trim: '#1b2028' }, 0, 22);
+        npcSpec.w = c.w; npcSpec.h = c.h; npcSpec.body = c.color;
+        npcSpec.roof = '#2c333d'; npcSpec.trim = '#1b2028';
+        drawCar(c.x, c.y, c.angle, npcSpec, 0, 22,
+          npcState(Math.hypot(c.vx, c.vy), 220));
       }
     },
 
@@ -326,9 +529,10 @@ window.MGS = window.MGS || {};
         var u = list[i];
         if (u.x < view.x0 || u.x > view.x1 || u.y < view.y0 || u.y > view.y1) continue;
         var t = MGS.Pursuit.TYPES[u.type];
-        drawCar(u.x, u.y, u.angle,
-          { w: u.w, h: u.h, body: t.body, roof: t.roof, trim: t.trim },
-          u.hitFlash, u.type === 'tank' ? 34 : 26);
+        npcSpec.w = u.w; npcSpec.h = u.h; npcSpec.body = t.body;
+        npcSpec.roof = t.roof; npcSpec.trim = t.trim;
+        drawCar(u.x, u.y, u.angle, npcSpec,
+          u.hitFlash, u.type === 'tank' ? 34 : 26, npcState(u.speed, t.top));
 
         // Flashing light bar.
         if (u.type === 'police' || u.type === 'swat') {
@@ -445,53 +649,73 @@ window.MGS = window.MGS || {};
 
     drawHud: function (state) {
       var w = cssW, player = state.player, wanted = MGS.Wanted;
+      var now = performance.now();
+      var i;
 
       ctx.textAlign = 'left';
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.fillRect(0, 0, w, 86);
+      ctx.fillStyle = 'rgba(0,0,0,0.38)';
+      ctx.fillRect(0, 0, w, 94);
 
+      // --- score: literally seconds survived --------------------------------
       ctx.fillStyle = '#f4f1e8';
       ctx.font = 'bold 40px Trebuchet MS, sans-serif';
-      ctx.fillText(Math.floor(wanted.score), 22, 52);
-
-      ctx.font = 'bold 12px Trebuchet MS, sans-serif';
+      ctx.fillText(Math.floor(wanted.score) + 's', 22, 46);
+      ctx.font = 'bold 11px Trebuchet MS, sans-serif';
       ctx.fillStyle = 'rgba(244,241,232,0.55)';
-      ctx.fillText('SCORE', 24, 70);
+      ctx.fillText('SECONDS SURVIVED', 24, 62);
 
+      // --- this car's power, with its charge --------------------------------
+      var ab = MGS.Abilities.status(player);
+      ctx.font = 'bold 12px Trebuchet MS, sans-serif';
+      ctx.fillStyle = ab.active ? '#ffc531' : 'rgba(244,241,232,0.55)';
+      ctx.fillText(ab.label, 24, 84);
+      ctx.fillStyle = 'rgba(244,241,232,0.16)';
+      ctx.fillRect(140, 75, 110, 7);
+      ctx.fillStyle = ab.active ? '#ffc531' : '#4f7fb5';
+      ctx.fillRect(140, 75, 110 * ab.charge, 7);
+
+      // --- cash this run -----------------------------------------------------
       ctx.textAlign = 'right';
       ctx.fillStyle = '#35c66b';
       ctx.font = 'bold 34px Trebuchet MS, sans-serif';
-      ctx.fillText('$' + state.run.cash, w - 22, 48);
+      ctx.fillText('$' + state.run.cash, w - 22, 44);
       ctx.fillStyle = 'rgba(244,241,232,0.55)';
-      ctx.font = 'bold 12px Trebuchet MS, sans-serif';
-      ctx.fillText('THIS RUN', w - 22, 68);
+      ctx.font = 'bold 11px Trebuchet MS, sans-serif';
+      ctx.fillText('THIS RUN', w - 22, 62);
 
-      // Heat sirens.
+      // --- heat sirens -------------------------------------------------------
       var count = 6, size = 16, gapS = 9;
       var total = count * size + (count - 1) * gapS;
       var x0 = (w - total) / 2;
-      for (var i = 0; i < count; i++) {
+      for (i = 0; i < count; i++) {
         var lit = i < wanted.level;
         ctx.fillStyle = lit
-          ? (Math.floor(performance.now() * 0.006) % 2 === 0 ? '#ff4b3e' : '#ff8a80')
+          ? (Math.floor(now * 0.006) % 2 === 0 ? '#ff4b3e' : '#ff8a80')
           : 'rgba(244,241,232,0.16)';
         ctx.beginPath();
-        ctx.arc(x0 + i * (size + gapS) + size / 2, 26, size / 2, 0, MGS.TAU);
+        ctx.arc(x0 + i * (size + gapS) + size / 2, 24, size / 2, 0, MGS.TAU);
         ctx.fill();
       }
-
       ctx.fillStyle = 'rgba(244,241,232,0.2)';
-      ctx.fillRect(x0, 46, total, 5);
+      ctx.fillRect(x0, 42, total, 5);
       ctx.fillStyle = '#ffc531';
-      ctx.fillRect(x0, 46, total * wanted.progress(), 5);
+      ctx.fillRect(x0, 42, total * wanted.progress(), 5);
 
       ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(244,241,232,0.7)';
+      ctx.fillStyle = 'rgba(244,241,232,0.75)';
       ctx.font = 'bold 12px Trebuchet MS, sans-serif';
-      ctx.fillText(wanted.label(), w / 2, 70);
+      ctx.fillText(wanted.label(), w / 2, 62);
+      if (wanted.level < 6) {
+        ctx.fillStyle = 'rgba(244,241,232,0.42)';
+        ctx.font = 'bold 10px Trebuchet MS, sans-serif';
+        ctx.fillText('HEAT ' + (wanted.level + 1) + ' IN ' + wanted.nextIn() + 's', w / 2, 80);
+      }
 
-      // Hull bar.
-      var barW = 260, barH = 16, bx = 22, by = cssH - 42;
+      Renderer.drawPowerupStrip();
+      Renderer.drawObjectives();
+
+      // --- hull --------------------------------------------------------------
+      var barW = 240, barH = 15, bx = 22, by = cssH - 40;
       ctx.fillStyle = 'rgba(0,0,0,0.45)';
       ctx.fillRect(bx - 4, by - 4, barW + 8, barH + 8);
       var hp01 = util.clamp(player.hp / player.maxHp, 0, 1);
@@ -502,23 +726,182 @@ window.MGS = window.MGS || {};
       ctx.font = 'bold 11px Trebuchet MS, sans-serif';
       ctx.fillText('HULL', bx, by - 9);
 
-      ctx.textAlign = 'right';
+      ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(244,241,232,0.5)';
       ctx.fillText(player.vehicle.name.toUpperCase() + '   ' +
-        Math.round(player.speed / 6) + ' MPH', cssW - 22, cssH - 24);
+        Math.round(player.speed / 6) + ' MPH', cssW / 2, cssH - 22);
 
-      // BUSTED meter.
+      // --- BUSTED meter -------------------------------------------------------
       var bust = wanted.bustProgress();
       if (bust > 0.02) {
         ctx.textAlign = 'center';
         ctx.fillStyle = 'rgba(255,75,62,' + (0.55 + bust * 0.45).toFixed(2) + ')';
         ctx.font = 'bold 26px Trebuchet MS, sans-serif';
-        ctx.fillText('GET MOVING', cssW / 2, cssH * 0.72);
+        ctx.fillText('GET MOVING', cssW / 2, cssH * 0.7);
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.fillRect(cssW / 2 - 120, cssH * 0.72 + 14, 240, 10);
+        ctx.fillRect(cssW / 2 - 120, cssH * 0.7 + 14, 240, 10);
         ctx.fillStyle = '#ff4b3e';
-        ctx.fillRect(cssW / 2 - 120, cssH * 0.72 + 14, 240 * bust, 10);
+        ctx.fillRect(cssW / 2 - 120, cssH * 0.7 + 14, 240 * bust, 10);
       }
+    },
+
+    /* Active power-up timers, stacked under the cash counter. */
+    drawPowerupStrip: function () {
+      var list = MGS.Powerups.active();
+      var x = cssW - 190, y = 104;
+      for (var i = 0; i < list.length; i++) {
+        var p = list[i];
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.fillRect(x, y, 168, 26);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(x, y, 5, 26);
+        ctx.fillRect(x, y + 23, 168 * p.frac, 3);
+
+        ctx.textAlign = 'left';
+        ctx.fillStyle = p.color;
+        ctx.font = 'bold 12px Trebuchet MS, sans-serif';
+        ctx.fillText(p.label, x + 12, y + 17);
+
+        ctx.textAlign = 'right';
+        ctx.fillStyle = 'rgba(244,241,232,0.7)';
+        ctx.fillText(p.seconds + 's', x + 160, y + 17);
+        y += 30;
+      }
+    },
+
+    /* The three live cash objectives. */
+    drawObjectives: function () {
+      var list = MGS.Objectives.active();
+      var x = 22, y = 112;
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = 'rgba(244,241,232,0.45)';
+      ctx.font = 'bold 10px Trebuchet MS, sans-serif';
+      ctx.fillText('OBJECTIVES', x, y);
+      y += 8;
+
+      for (var i = 0; i < list.length; i++) {
+        var o = list[i];
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.fillRect(x, y, 210, 28);
+
+        ctx.fillStyle = o.flash > 0 ? '#ffc531' : 'rgba(244,241,232,0.85)';
+        ctx.font = 'bold 11px Trebuchet MS, sans-serif';
+        ctx.fillText(o.text, x + 8, y + 13);
+
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#35c66b';
+        ctx.fillText('$' + o.reward, x + 202, y + 13);
+        ctx.textAlign = 'left';
+
+        ctx.fillStyle = 'rgba(244,241,232,0.15)';
+        ctx.fillRect(x + 8, y + 19, 194, 4);
+        ctx.fillStyle = '#ffc531';
+        ctx.fillRect(x + 8, y + 19, 194 * o.frac, 4);
+        y += 32;
+      }
+    },
+
+    /* Bottom-right radar. Shows roads, water, cash, crates and every pursuer. */
+    drawMinimap: function (state) {
+      var player = state.player;
+      var size = 168;
+      var pad = 18;
+      var mx = cssW - size - pad;
+      var my = cssH - size - pad;
+      var cxm = mx + size / 2;
+      var cym = my + size / 2;
+      var RANGE = 2000;                 // world pixels from edge to edge
+      var k = (size / 2) / RANGE;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(10,14,20,0.78)';
+      ctx.fillRect(mx, my, size, size);
+      ctx.strokeStyle = 'rgba(244,241,232,0.25)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(mx, my, size, size);
+
+      ctx.beginPath();
+      ctx.rect(mx + 2, my + 2, size - 4, size - 4);
+      ctx.clip();
+
+      // Roads.
+      var sp = MGS.World.ROAD_SPACING;
+      ctx.strokeStyle = 'rgba(160,175,195,0.35)';
+      ctx.lineWidth = 2;
+      var kx, gx, gy;
+      for (kx = Math.floor((player.x - RANGE) / sp); kx <= Math.ceil((player.x + RANGE) / sp); kx++) {
+        gx = cxm + (kx * sp + 60 - player.x) * k;
+        ctx.beginPath(); ctx.moveTo(gx, my); ctx.lineTo(gx, my + size); ctx.stroke();
+      }
+      for (kx = Math.floor((player.y - RANGE) / sp); kx <= Math.ceil((player.y + RANGE) / sp); kx++) {
+        gy = cym + (kx * sp + 60 - player.y) * k;
+        ctx.beginPath(); ctx.moveTo(mx, gy); ctx.lineTo(mx + size, gy); ctx.stroke();
+      }
+
+      var chunks = MGS.World.activeChunks();
+      var c, j, list;
+
+      // Water blobs - worth seeing coming.
+      ctx.fillStyle = 'rgba(26,155,224,0.85)';
+      for (var ci = 0; ci < chunks.length; ci++) {
+        var obs = chunks[ci].obstacles;
+        for (j = 0; j < obs.length; j++) {
+          if (obs[j].kind !== 'water') continue;
+          ctx.fillRect(cxm + (obs[j].x - player.x) * k, cym + (obs[j].y - player.y) * k,
+            Math.max(2, obs[j].w * k), Math.max(2, obs[j].h * k));
+        }
+      }
+
+      // Cash and crates.
+      for (ci = 0; ci < chunks.length; ci++) {
+        list = chunks[ci].pickups;
+        ctx.fillStyle = '#35c66b';
+        for (j = 0; j < list.length; j++) {
+          if (list[j].taken) continue;
+          ctx.fillRect(cxm + (list[j].x - player.x) * k - 1, cym + (list[j].y - player.y) * k - 1, 2, 2);
+        }
+        list = chunks[ci].crates;
+        ctx.fillStyle = '#4fa8f5';
+        for (j = 0; j < list.length; j++) {
+          if (list[j].taken) continue;
+          ctx.fillRect(cxm + (list[j].x - player.x) * k - 3, cym + (list[j].y - player.y) * k - 3, 6, 6);
+        }
+      }
+
+      // Pursuers.
+      var units = MGS.Pursuit.units.active;
+      for (j = 0; j < units.length; j++) {
+        var u = units[j];
+        ctx.fillStyle = u.type === 'tank' ? '#ffc531' : '#ff4b3e';
+        ctx.fillRect(cxm + (u.x - player.x) * k - 2.5, cym + (u.y - player.y) * k - 2.5, 5, 5);
+      }
+
+      // Helicopter.
+      var heli = MGS.Pursuit.heli();
+      if (heli) {
+        ctx.fillStyle = '#b978f0';
+        ctx.fillRect(cxm + (heli.x - player.x) * k - 3, cym + (heli.y - player.y) * k - 3, 6, 6);
+      }
+
+      // The player, pointing where they are going.
+      ctx.save();
+      ctx.translate(cxm, cym);
+      ctx.rotate(player.angle);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(7, 0);
+      ctx.lineTo(-5, -5);
+      ctx.lineTo(-5, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      ctx.restore();
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = 'rgba(244,241,232,0.45)';
+      ctx.font = 'bold 10px Trebuchet MS, sans-serif';
+      ctx.fillText('RADAR', mx, my - 6);
     },
 
     /* --- garage thumbnails ---------------------------------------------------- */
@@ -538,17 +921,30 @@ window.MGS = window.MGS || {};
       g.scale(s, s);
 
       var w = vehicle.w, h = vehicle.h;
+      // A frozen frame of this car's own animation, so the garage shows what
+      // actually makes each one different.
+      var st = { t: 0.42, speed01: 0.85, wheelSpin: 0.3, steer: 0.25, roll: 0,
+                 drift01: 0.8, turret: -0.5 };
+
       g.fillStyle = 'rgba(0,0,0,0.3)';
       g.fillRect(-w / 2 + 5, -h / 2 + 7, w, h);
+
+      MGS.CarAnims.drawWheels(g, vehicle, st);
+
       g.fillStyle = shade(vehicle.body, 0.55);
       g.fillRect(-w / 2, -h / 2, w, h);
+
+      g.save();
+      g.translate(-3, -4);
       g.fillStyle = vehicle.body;
-      g.fillRect(-w / 2 - 3, -h / 2 - 4, w, h);
+      g.fillRect(-w / 2, -h / 2, w, h);
       g.fillStyle = vehicle.roof;
-      g.fillRect(-w * 0.22 - 3, -h * 0.34 - 4, w * 0.46, h * 0.68);
+      g.fillRect(-w * 0.22, -h * 0.34, w * 0.46, h * 0.68);
       g.fillStyle = vehicle.trim;
-      g.fillRect(w * 0.24 - 3, -h * 0.34 - 4, w * 0.1, h * 0.68);
-      g.fillRect(-w * 0.46 - 3, -h * 0.4 - 4, w * 0.08, h * 0.8);
+      g.fillRect(w * 0.24, -h * 0.34, w * 0.1, h * 0.68);
+      g.fillRect(-w * 0.46, -h * 0.4, w * 0.08, h * 0.8);
+      if (vehicle.anim) MGS.CarAnims.drawFlourish(g, vehicle, st);
+      g.restore();
       return c;
     }
   };
