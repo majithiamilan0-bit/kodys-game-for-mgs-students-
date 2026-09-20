@@ -23,7 +23,8 @@ window.MGS = window.MGS || {};
     return 'rgb(' + r + ',' + g + ',' + b + ')';
   }
 
-  /* Four wheels. The moving light band across each one reads as rotation. */
+  /* Four wheels. A dark tyre, a moving light band that reads as rotation, and a
+     small metallic hub so they read as wheels rather than grey blocks. */
   function drawWheels(ctx, car, st) {
     var w = car.w, h = car.h;
     var ww = Math.max(9, w * 0.2);
@@ -38,12 +39,24 @@ window.MGS = window.MGS || {};
         ctx.save();
         ctx.translate(xs[i], ys[j] + wh / 2);
         if (front) ctx.rotate(steer);
-        ctx.fillStyle = '#14181f';
+
+        // Tyre with a slight rim highlight down one edge.
+        ctx.fillStyle = '#0e1116';
         ctx.fillRect(-ww / 2, -wh / 2, ww, wh);
-        // Spinning band.
+        ctx.fillStyle = 'rgba(60,66,76,0.7)';
+        ctx.fillRect(-ww / 2, -wh / 2, 1.4, wh);
+
+        // Spinning band - the tell that the wheel is actually turning.
         var phase = (st.wheelSpin + (front ? 0.5 : 0)) % 1;
-        ctx.fillStyle = 'rgba(210,215,225,0.55)';
-        ctx.fillRect(-ww / 2 + phase * (ww - 3), -wh / 2, 3, wh);
+        ctx.fillStyle = 'rgba(215,220,230,0.6)';
+        ctx.fillRect(-ww / 2 + phase * (ww - 2.4), -wh / 2, 2.4, wh);
+
+        // Hub nut.
+        ctx.fillStyle = '#8d94a0';
+        ctx.beginPath();
+        ctx.arc(0, 0, Math.min(ww, wh) * 0.22, 0, TAU);
+        ctx.fill();
+
         ctx.restore();
       }
     }

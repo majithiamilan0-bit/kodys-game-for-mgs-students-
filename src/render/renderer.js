@@ -90,6 +90,13 @@ window.MGS = window.MGS || {};
     ctx.restore();
   }
 
+  var RARITY_GLOW = {
+    common: null,
+    rare: '#4fa8f5',
+    epic: '#b978f0',
+    legendary: '#ffc531'
+  };
+
   var ANIM_DEFAULT = { t: 0, speed01: 0, wheelSpin: 0, steer: 0, drift01: 0, turret: 0 };
 
   /* Reused every frame for traffic and police so drawing allocates nothing. */
@@ -104,19 +111,118 @@ window.MGS = window.MGS || {};
     return npcAnim;
   }
 
-  /* A car: ground shadow, spinning wheels, dark chassis, then the body lifted by
-     the same parallax offset the buildings use so it reads as a solid block, and
-     finally that car's own unique animated flourish on top. */
+  /* Paints the body shell - rounded, gradient-shaded, glassed, lamped and
+     flourished - onto whatever context is already translated to the car's
+     centre and rotated so +x is the nose. Shared by the in-world renderer and
+     the garage thumbnail generator so a car looks like itself in both places. */
+  function paintCarBody(g, spec, flash, st) {
+    var w = spec.w, h = spec.h;
+
+    var glow = RARITY_GLOW[spec.rarity];
+    if (glow) {
+      g.save();
+      g.shadowColor = glow;
+      g.shadowBlur = 14;
+      roundedRectPath2(g, -w / 2, -h / 2, w, h, Math.min(7, h * 0.22));
+      g.fillStyle = glow;
+      g.fill();
+      g.restore();
+    }
+
+    // Body: a top-lit gradient so flat colour still reads as a rounded shell.
+    var bodyColor = flash > 0 ? '#ffffff' : spec.body;
+    var bodyGrad = g.createLinearGradient(0, -h / 2, 0, h / 2);
+    bodyGrad.addColorStop(0, flash > 0 ? '#ffffff' : shade(bodyColor, 1.28));
+    bodyGrad.addColorStop(0.45, bodyColor);
+    bodyGrad.addColorStop(1, flash > 0 ? '#ffe0e0' : shade(bodyColor, 0.72));
+    roundedRectPath2(g, -w / 2, -h / 2, w, h, Math.min(7, h * 0.22));
+    g.fillStyle = bodyGrad;
+    g.fill();
+    g.strokeStyle = flash > 0 ? '#ffffff' : shade(bodyColor, 0.45);
+    g.lineWidth = 1.4;
+    g.stroke();
+
+    // Roof / cabin, gradient-shaded to match, with a diagonal glass highlight.
+    var roofColor = flash > 0 ? '#ffd9d9' : spec.roof;
+    var cx0 = -w * 0.22, cy0 = -h * 0.34, cw = w * 0.46, ch = h * 0.68;
+    var roofGrad = g.createLinearGradient(cx0, cy0, cx0, cy0 + ch);
+    roofGrad.addColorStop(0, shade(roofColor, 1.15));
+    roofGrad.addColorStop(1, shade(roofColor, 0.8));
+    roundedRectPath2(g, cx0, cy0, cw, ch, Math.min(4, ch * 0.18));
+    g.fillStyle = roofGrad;
+    g.fill();
+
+    g.save();
+    g.clip();
+    g.fillStyle = 'rgba(255,255,255,0.28)';
+    g.beginPath();
+    g.moveTo(cx0, cy0 + ch * 0.15);
+    g.lineTo(cx0 + cw * 0.4, cy0);
+    g.lineTo(cx0 + cw * 0.65, cy0);
+    g.lineTo(cx0 + cw * 0.15, cy0 + ch);
+    g.lineTo(cx0, cy0 + ch);
+    g.closePath();
+    g.fill();
+    g.restore();
+
+    // Windscreen and nose stripe.
+    g.fillStyle = spec.trim;
+    g.fillRect(w * 0.24, -h * 0.34, w * 0.1, h * 0.68);
+    g.fillRect(-w * 0.46, -h * 0.4, w * 0.08, h * 0.8);
+
+    // Headlights and taillights - small but they sell the silhouette.
+    var lampW = Math.max(2.5, w * 0.045), lampH = Math.max(3, h * 0.16);
+    g.fillStyle = '#fff3c4';
+    g.fillRect(w / 2 - lampW - 1, -h / 2 + 1.5, lampW, lampH);
+    g.fillRect(w / 2 - lampW - 1, h / 2 - lampH - 1.5, lampW, lampH);
+    g.fillStyle = '#ff4b3e';
+    g.fillRect(-w / 2 + 1, -h / 2 + 1.5, lampW, lampH);
+    g.fillRect(-w / 2 + 1, h / 2 - lampH - 1.5, lampW, lampH);
+
+    // Thin pinstripe along the flank - reinforces the body's rounded curve.
+    g.strokeStyle = 'rgba(255,255,255,0.22)';
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(-w * 0.42, 0);
+    g.lineTo(w * 0.42, 0);
+    g.stroke();
+
+    if (spec.anim) MGS.CarAnims.drawFlourish(g, spec, st);
+  }
+
+  /* Same as roundedRectPath but takes the context explicitly, since the garage
+     thumbnail generator draws on an offscreen context, not the main `ctx`. */
+  function roundedRectPath2(g, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+  }
+
+  /* A car: soft contact shadow, spinning wheels, dark chassis, then the body -
+     rounded, gradient-shaded, glassed and lit - lifted by the same parallax
+     offset the buildings use so it reads as a solid block, and finally that
+     car's own unique animated flourish on top. */
   function drawCar(x, y, angle, spec, flash, lift, st) {
     var w = spec.w, h = spec.h;
     var height = lift == null ? 26 : lift;
     st = st || ANIM_DEFAULT;
 
+    // Soft contact shadow: a blurred ellipse reads far better than a flat box.
     ctx.save();
-    ctx.translate(x + 7, y + 9);
+    ctx.translate(x, y + 4);
     ctx.rotate(angle);
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    ctx.fillRect(-w / 2, -h / 2, w, h);
+    var shadowGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, w * 0.62);
+    shadowGrad.addColorStop(0, 'rgba(0,0,0,0.4)');
+    shadowGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = shadowGrad;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, w * 0.58, h * 0.62, 0, 0, MGS.TAU);
+    ctx.fill();
     ctx.restore();
 
     // Wheels sit under the body, on the ground plane.
@@ -126,7 +232,7 @@ window.MGS = window.MGS || {};
     MGS.CarAnims.drawWheels(ctx, spec, st);
     ctx.restore();
 
-    rotatedRect(x, y, angle, w, h, shade(spec.body, 0.55));
+    rotatedRect(x, y, angle, w, h, shade(spec.body, 0.5));
 
     var k = height * HEIGHT_K;
     var ox = (x - cam.x) * k;
@@ -138,19 +244,7 @@ window.MGS = window.MGS || {};
     // Body roll: the shell leans away from the corner you are taking.
     ctx.translate(0, st.roll ? st.roll * h * 0.13 : 0);
 
-    ctx.fillStyle = flash > 0 ? '#ffffff' : spec.body;
-    ctx.fillRect(-w / 2, -h / 2, w, h);
-
-    // Roof / cabin.
-    ctx.fillStyle = flash > 0 ? '#ffd9d9' : spec.roof;
-    ctx.fillRect(-w * 0.22, -h * 0.34, w * 0.46, h * 0.68);
-
-    // Windscreen and nose stripe.
-    ctx.fillStyle = spec.trim;
-    ctx.fillRect(w * 0.24, -h * 0.34, w * 0.1, h * 0.68);
-    ctx.fillRect(-w * 0.46, -h * 0.4, w * 0.08, h * 0.8);
-
-    if (spec.anim) MGS.CarAnims.drawFlourish(ctx, spec, st);
+    paintCarBody(ctx, spec, flash, st);
 
     ctx.restore();
   }
@@ -257,33 +351,52 @@ window.MGS = window.MGS || {};
       var r = player.radius + 16;
 
       if (MGS.Powerups.has('shield')) {
-        ctx.strokeStyle = 'rgba(53,198,107,' + (0.5 + 0.3 * Math.sin(t * 8)).toFixed(2) + ')';
-        ctx.lineWidth = 4;
+        var sPulse = 0.5 + 0.3 * Math.sin(t * 8);
+        var sGrad = ctx.createRadialGradient(player.x, player.y, r - 6, player.x, player.y, r + 12);
+        sGrad.addColorStop(0, 'rgba(53,198,107,0)');
+        sGrad.addColorStop(0.7, 'rgba(53,198,107,' + (sPulse * 0.35).toFixed(2) + ')');
+        sGrad.addColorStop(1, 'rgba(53,198,107,0)');
+        ctx.fillStyle = sGrad;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, r + 12, 0, MGS.TAU);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(120,240,160,' + sPulse.toFixed(2) + ')';
+        ctx.lineWidth = 3;
         ctx.beginPath();
         ctx.arc(player.x, player.y, r + 6, 0, MGS.TAU);
         ctx.stroke();
       }
       if (player.ab.shield) {
-        ctx.strokeStyle = 'rgba(134,210,185,0.55)';
+        ctx.strokeStyle = 'rgba(134,210,185,0.6)';
         ctx.lineWidth = 2;
+        ctx.setLineDash([6, 5]);
+        ctx.lineDashOffset = -t * 30;
         ctx.beginPath();
         ctx.arc(player.x, player.y, r, 0, MGS.TAU);
         ctx.stroke();
+        ctx.setLineDash([]);
       }
       if (player.ab.empRing > 0) {
         var grow = 1 - player.ab.empRing / 0.5;
-        ctx.strokeStyle = 'rgba(120,200,255,' + (1 - grow).toFixed(2) + ')';
+        var empR = 40 + grow * 260;
+        var eGrad = ctx.createRadialGradient(player.x, player.y, empR - 22, player.x, player.y, empR + 4);
+        eGrad.addColorStop(0, 'rgba(120,200,255,0)');
+        eGrad.addColorStop(1, 'rgba(120,200,255,' + ((1 - grow) * 0.9).toFixed(2) + ')');
+        ctx.strokeStyle = eGrad;
         ctx.lineWidth = 6;
         ctx.beginPath();
-        ctx.arc(player.x, player.y, 40 + grow * 260, 0, MGS.TAU);
+        ctx.arc(player.x, player.y, empR, 0, MGS.TAU);
         ctx.stroke();
       }
       if (player.ab.warp > 0) {
-        ctx.strokeStyle = 'rgba(108,224,255,0.4)';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(player.x, player.y, r + 10 + Math.sin(t * 5) * 6, 0, MGS.TAU);
-        ctx.stroke();
+        for (var ring = 0; ring < 2; ring++) {
+          var rr = r + 10 + ring * 14 + Math.sin(t * 5 + ring) * 6;
+          ctx.strokeStyle = 'rgba(108,224,255,' + (0.4 - ring * 0.15).toFixed(2) + ')';
+          ctx.lineWidth = 3 - ring;
+          ctx.beginPath();
+          ctx.arc(player.x, player.y, rr, 0, MGS.TAU);
+          ctx.stroke();
+        }
       }
     },
 
@@ -630,6 +743,20 @@ window.MGS = window.MGS || {};
           continue;
         }
 
+        if (p.kind === 'spark') {
+          // A soft glow reads far better than a flat square for fire and debris.
+          var sparkGrad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+          sparkGrad.addColorStop(0, p.color);
+          sparkGrad.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.globalAlpha = a;
+          ctx.fillStyle = sparkGrad;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, MGS.TAU);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          continue;
+        }
+
         ctx.globalAlpha = a;
         ctx.fillStyle = p.color;
         if (p.kind === 'box') {
@@ -926,24 +1053,23 @@ window.MGS = window.MGS || {};
       var st = { t: 0.42, speed01: 0.85, wheelSpin: 0.3, steer: 0.25, roll: 0,
                  drift01: 0.8, turret: -0.5 };
 
-      g.fillStyle = 'rgba(0,0,0,0.3)';
-      g.fillRect(-w / 2 + 5, -h / 2 + 7, w, h);
+      // Soft contact shadow, same recipe as the in-world renderer.
+      var shadowGrad = g.createRadialGradient(0, 3, 0, 0, 3, w * 0.62);
+      shadowGrad.addColorStop(0, 'rgba(0,0,0,0.4)');
+      shadowGrad.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = shadowGrad;
+      g.beginPath();
+      g.ellipse(0, 3, w * 0.58, h * 0.62, 0, 0, MGS.TAU);
+      g.fill();
 
       MGS.CarAnims.drawWheels(g, vehicle, st);
 
-      g.fillStyle = shade(vehicle.body, 0.55);
+      g.fillStyle = shade(vehicle.body, 0.5);
       g.fillRect(-w / 2, -h / 2, w, h);
 
       g.save();
       g.translate(-3, -4);
-      g.fillStyle = vehicle.body;
-      g.fillRect(-w / 2, -h / 2, w, h);
-      g.fillStyle = vehicle.roof;
-      g.fillRect(-w * 0.22, -h * 0.34, w * 0.46, h * 0.68);
-      g.fillStyle = vehicle.trim;
-      g.fillRect(w * 0.24, -h * 0.34, w * 0.1, h * 0.68);
-      g.fillRect(-w * 0.46, -h * 0.4, w * 0.08, h * 0.8);
-      if (vehicle.anim) MGS.CarAnims.drawFlourish(g, vehicle, st);
+      paintCarBody(g, vehicle, 0, st);
       g.restore();
       return c;
     }
