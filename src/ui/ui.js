@@ -27,7 +27,7 @@ window.MGS = window.MGS || {};
   var UI = {
     init: function (handlers) {
       hooks = handlers || {};
-      ['menu', 'howto', 'garage', 'results', 'pause'].forEach(function (name) {
+      ['menu', 'howto', 'garage', 'results', 'pause', 'slot'].forEach(function (name) {
         screens[name] = document.getElementById('screen-' + name);
       });
 
@@ -46,9 +46,13 @@ window.MGS = window.MGS || {};
         if (e.code === 'Enter') {
           if (current === 'menu' || current === 'results') UI.action('drive');
           else if (current === 'pause') UI.action('resume');
-          else UI.action('menu');
+          else if (current === 'slot') {
+            var collect = $('[data-action="slot-collect"]');
+            if (collect && !collect.disabled) UI.action('slot-collect');
+          } else UI.action('menu');
         } else if (e.code === 'Escape') {
           if (current === 'pause') UI.action('resume');
+          else if (current === 'slot') { /* let the reels finish */ }
           else if (current !== 'menu') UI.action('menu');
         }
       });
@@ -92,6 +96,11 @@ window.MGS = window.MGS || {};
           break;
         case 'spin':
           UI.doSpin();
+          break;
+        case 'slot-collect':
+          MGS.Audio.click();
+          UI.buildGarage();
+          UI.show('garage');
           break;
         case 'select':
           MGS.Economy.select(btn.getAttribute('data-car'));
@@ -159,6 +168,7 @@ window.MGS = window.MGS || {};
         body.innerHTML =
           '<div class="car-name">' + v.name + '</div>' +
           '<div class="car-rarity ' + rarityClass(v.rarity) + '">' + v.rarity + '</div>' +
+          '<div class="car-power">' + (v.power || '') + '</div>' +
           '<div class="car-bars">' +
             statBar('SPD', v.topSpeed, MAX.topSpeed) +
             statBar('ACC', v.accel, MAX.accel) +
@@ -202,15 +212,89 @@ window.MGS = window.MGS || {};
     },
 
     doSpin: function () {
-      var won = MGS.Economy.spin();
-      if (!won) {
-        setText('spin-msg', MGS.Economy.canSpin() ? '' : 'Not enough cash — go drive.');
+      if (!MGS.Economy.canSpin()) {
+        setText('spin-msg', MGS.Economy.spinPool().length
+          ? 'Not enough cash — go drive.'
+          : 'Every buyable car is already yours.');
         return;
       }
-      MGS.Audio.unlockJingle();
-      setText('spin-msg', 'UNLOCKED: ' + won.name + '!');
-      UI.buildGarage();
+      var won = MGS.Economy.spin();
+      if (!won) return;
+      setText('spin-msg', '');
       UI.refresh();
+      UI.runSlot(won);
+    },
+
+    /* The crate result is already decided by Economy.spin(); the reels are pure
+       theatre that land on the rarity we know we won. */
+    runSlot: function (won) {
+      var RARITIES = [
+        { id: 'common', label: 'COMMON', color: '#9fb0c2', icon: '■' },
+        { id: 'rare', label: 'RARE', color: '#4fa8f5', icon: '◆' },
+        { id: 'epic', label: 'EPIC', color: '#b978f0', icon: '✦' },
+        { id: 'legendary', label: 'LEGENDARY', color: '#ffc531', icon: '★' }
+      ];
+      var CELL = 92;
+      var REPEATS = 16;
+      var targetIndex = 0;
+      RARITIES.forEach(function (r, i) { if (r.id === won.rarity) targetIndex = i; });
+
+      var reveal = $('[data-bind="slot-reveal"]');
+      reveal.className = 'slot-reveal';
+      reveal.innerHTML = '';
+
+      var collect = $('[data-action="slot-collect"]');
+      collect.disabled = true;
+      collect.textContent = 'SPINNING…';
+
+      var strips = $$('.reel-strip');
+      var cells = '';
+      for (var r = 0; r < REPEATS; r++) {
+        for (var i = 0; i < RARITIES.length; i++) {
+          cells += '<div class="reel-cell" style="color:' + RARITIES[i].color + '">' +
+            '<b>' + RARITIES[i].icon + '</b>' + RARITIES[i].label + '</div>';
+        }
+      }
+      strips.forEach(function (strip) {
+        strip.innerHTML = cells;
+        strip.style.transition = 'none';
+        strip.style.transform = 'translateY(0px)';
+      });
+
+      UI.show('slot');
+      MGS.Audio.click();
+
+      var lastDur = 0;
+      // Start on the next frame, otherwise the browser skips the transition.
+      requestAnimationFrame(function () {
+        strips.forEach(function (strip, n) {
+          var dur = 1.5 + n * 0.55;
+          lastDur = Math.max(lastDur, dur);
+          var landing = (REPEATS - 4 + n) * RARITIES.length + targetIndex;
+          strip.style.transition = 'transform ' + dur + 's cubic-bezier(.12,.72,.15,1)';
+          strip.style.transform = 'translateY(-' + (landing * CELL) + 'px)';
+          window.setTimeout(function () { MGS.Audio.heat(); }, dur * 1000);
+        });
+
+        window.setTimeout(function () {
+          reveal.appendChild(MGS.Renderer.carSprite(won, 150, 62));
+
+          var name = document.createElement('div');
+          name.className = 'won-name ' + rarityClass(won.rarity);
+          name.textContent = won.name;
+          reveal.appendChild(name);
+
+          var power = document.createElement('div');
+          power.className = 'won-power';
+          power.textContent = won.power || '';
+          reveal.appendChild(power);
+
+          reveal.classList.add('shown');
+          collect.disabled = false;
+          collect.textContent = 'COLLECT';
+          MGS.Audio.unlockJingle();
+        }, lastDur * 1000 + 350);
+      });
     },
 
     /* --- results ------------------------------------------------------------ */
@@ -221,6 +305,7 @@ window.MGS = window.MGS || {};
       setText('r-best', MGS.Economy.best());
       setText('r-cash', run.cash);
       setText('r-heat', run.maxHeat);
+      setText('r-obj', run.objectives || 0);
       setText('r-unlock', unlocked.length
         ? 'NEW CAR UNLOCKED: ' + unlocked.map(function (v) { return v.name; }).join(', ')
         : '');

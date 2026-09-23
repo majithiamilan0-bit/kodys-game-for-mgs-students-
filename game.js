@@ -20,8 +20,35 @@
 
   var run = newRun();
 
+  // Shared context handed to the ability / power-up / objective systems so they
+  // never have to reach into globals or allocate a new object every frame.
+  var ctx = {
+    effects: MGS.Effects,
+    hazards: MGS.Hazards,
+    run: run,
+    callbacks: null
+  };
+
   function newRun() {
-    return { score: 0, cash: 0, cashExact: 0, kills: 0, maxHeat: 1, verdict: 'WASTED' };
+    return { score: 0, cash: 0, cashExact: 0, kills: 0, maxHeat: 1,
+             objectives: 0, verdict: 'WASTED' };
+  }
+
+  /* --- callbacks the entity systems fire back into ------------------------- */
+
+  var callbacks = {
+    onKill: function (unit) {
+      MGS.Wanted.addKill();
+      run.cashExact += MGS.Pursuit.CASH_PER_KILL;
+      MGS.Objectives.note('kill');
+      MGS.Abilities.onKill(player, unit, ctx);
+    },
+    onPlayerHit: function () { /* hook for future feedback */ }
+  };
+  ctx.callbacks = callbacks;
+
+  function onTrafficSmash() {
+    MGS.Objectives.note('traffic');
   }
 
   /* --- run lifecycle ------------------------------------------------------- */
@@ -32,8 +59,13 @@
     MGS.Traffic.reset(seed + 3);
     MGS.Pursuit.reset(seed + 7);
     MGS.Effects.reset();
+    MGS.Hazards.reset();
+    MGS.Powerups.reset();
+    MGS.Objectives.reset();
     MGS.Wanted.reset();
+
     run = newRun();
+    ctx.run = run;
 
     // Start on a crossroads so the first few seconds are always drivable.
     var spacing = MGS.World.ROAD_SPACING;
@@ -73,25 +105,34 @@
 
   /* --- simulation ---------------------------------------------------------- */
 
-  var callbacks = {
-    onKill: function () {
-      MGS.Wanted.addKill();
-    },
-    onPlayerHit: function () { /* hook for future feedback */ }
-  };
-
   function stepPlaying(dt) {
     MGS.World.update(player.x, player.y);
     player.update(dt, MGS.Input, MGS.World, MGS.Effects);
 
-    MGS.World.collectPickups(player.x, player.y, player.radius + 26, function () {
+    MGS.Abilities.update(dt, player, ctx);
+    MGS.Powerups.update(dt, player, ctx);
+
+    // Cash magnets widen the pickup radius rather than changing the pickups.
+    var reach = (player.radius + 26) *
+      MGS.Abilities.pickupRadiusMult(player) * MGS.Powerups.pickupMult();
+    MGS.World.collectPickups(player.x, player.y, reach, function () {
       run.cashExact += player.vehicle.cashMult;
-      run.cash = Math.floor(run.cashExact);
       MGS.Audio.cash();
+      MGS.Objectives.note('cashpickup');
     });
 
-    MGS.Traffic.update(dt, player, MGS.World, MGS.Effects, null);
+    // Crates are never magnetised - you have to drive over them.
+    MGS.World.collectCrates(player.x, player.y, player.radius + 30, function (crate) {
+      MGS.Powerups.collect(crate.type, player, ctx);
+      MGS.Objectives.note('powerup');
+    });
+
+    MGS.Traffic.update(dt, player, MGS.World, MGS.Effects, onTrafficSmash);
     MGS.Pursuit.update(dt, player, MGS.World, MGS.Effects, MGS.Wanted.level, callbacks);
+    MGS.Hazards.update(dt, MGS.Pursuit.units.active, MGS.Effects, callbacks.onKill);
+    MGS.Objectives.update(dt, player, run, ctx);
+
+    run.cash = Math.floor(run.cashExact);
 
     var verdict = MGS.Wanted.update(dt, player, MGS.Pursuit.units.active);
     if (verdict === 'busted' && !player.dead) {
@@ -119,6 +160,7 @@
     MGS.World.update(player.x, player.y);
     MGS.Traffic.update(dt, player, MGS.World, MGS.Effects, null);
     MGS.Pursuit.update(dt, player, MGS.World, MGS.Effects, MGS.Wanted.level, callbacks);
+    MGS.Hazards.update(dt, MGS.Pursuit.units.active, MGS.Effects, callbacks.onKill);
     MGS.Audio.updateSiren(MGS.Wanted.level, MGS.Pursuit.count());
     deathTimer -= dt;
     if (deathTimer <= 0) endRun();

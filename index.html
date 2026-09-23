@@ -22,7 +22,7 @@
       <button class="btn" data-action="mute">SOUND: ON</button>
     </div>
     <dl class="stats">
-      <div><dt>BEST SCORE</dt><dd data-bind="best">0</dd></div>
+      <div><dt>BEST (SECS)</dt><dd data-bind="best">0</dd></div>
       <div><dt>CASH</dt><dd data-bind="cash">0</dd></div>
       <div><dt>CARS OWNED</dt><dd data-bind="owned">1 / 24</dd></div>
     </dl>
@@ -44,11 +44,14 @@
     </table>
     <ul class="tips">
       <li>The car drives itself &mdash; you only steer. Turning bleeds speed.</li>
-      <li>Score rises while you survive. Smashing a pursuer is worth +30.</li>
-      <li>Every 30 / 80 / 150 / 250 / 400 points the heat goes up a star.</li>
-      <li>Grab green cash on the road. Spend it in the garage.</li>
-      <li>Water is instant death &mdash; but cops drown in it too.</li>
+      <li><strong>Your score is seconds survived.</strong> Nothing else adds to it.</li>
+      <li>Heat rises at 40 / 90 / 150 / 220 / 300 seconds and never cools down.</li>
+      <li>Green notes are cash. Blue crates are temporary power-ups.</li>
+      <li>Clear the three objectives on the left for big cash bonuses.</li>
+      <li><strong>Every car has its own unique power</strong> &mdash; check the garage.</li>
+      <li>Bright blue water is instant death &mdash; but cops drown in it too.</li>
       <li>Ramps launch you. Sit still next to cops and you get BUSTED.</li>
+      <li>Watch the radar bottom-right: red dots are hunting you.</li>
     </ul>
     <button class="btn" data-action="menu">BACK</button>
   </div>
@@ -70,15 +73,31 @@
   </div>
 </section>
 
+<!-- ===== MYSTERY CRATE SLOT MACHINE ===== -->
+<section id="screen-slot" class="screen hidden">
+  <div class="panel slot-panel">
+    <h2>MYSTERY CRATE</h2>
+    <div class="slot-machine">
+      <div class="reel"><div class="reel-strip" data-reel="0"></div></div>
+      <div class="reel"><div class="reel-strip" data-reel="1"></div></div>
+      <div class="reel"><div class="reel-strip" data-reel="2"></div></div>
+      <div class="slot-line"></div>
+    </div>
+    <div class="slot-reveal" data-bind="slot-reveal"></div>
+    <button class="btn btn-big" data-action="slot-collect" disabled>SPINNING&hellip;</button>
+  </div>
+</section>
+
 <!-- ===== RESULTS ===== -->
 <section id="screen-results" class="screen hidden">
   <div class="panel">
     <h1 class="verdict" data-bind="verdict">BUSTED</h1>
     <dl class="stats stats-big">
-      <div><dt>SCORE</dt><dd data-bind="r-score">0</dd></div>
+      <div><dt>SECONDS</dt><dd data-bind="r-score">0</dd></div>
       <div><dt>BEST</dt><dd data-bind="r-best">0</dd></div>
       <div><dt>CASH EARNED</dt><dd data-bind="r-cash">0</dd></div>
       <div><dt>TOP HEAT</dt><dd data-bind="r-heat">1</dd></div>
+      <div><dt>OBJECTIVES</dt><dd data-bind="r-obj">0</dd></div>
     </dl>
     <p class="unlock-msg" data-bind="r-unlock"></p>
     <div class="row">
@@ -111,11 +130,16 @@
 <script src="src/data/vehicles.js"></script>
 <script src="src/systems/economy.js"></script>
 <script src="src/systems/effects.js"></script>
+<script src="src/systems/hazards.js"></script>
+<script src="src/systems/abilities.js"></script>
+<script src="src/systems/powerups.js"></script>
+<script src="src/systems/objectives.js"></script>
 <script src="src/world/world.js"></script>
 <script src="src/entities/player.js"></script>
 <script src="src/entities/traffic.js"></script>
 <script src="src/entities/pursuit.js"></script>
 <script src="src/systems/wanted.js"></script>
+<script src="src/render/carAnims.js"></script>
 <script src="src/render/renderer.js"></script>
 <script src="src/ui/ui.js"></script>
 <script src="game.js"></script>

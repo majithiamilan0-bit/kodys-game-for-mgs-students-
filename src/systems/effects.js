@@ -6,8 +6,6 @@ window.MGS = window.MGS || {};
 (function (MGS) {
   'use strict';
 
-  var util = MGS.util;
-
   function newParticle() {
     return { x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 1, size: 4, rot: 0,
              spin: 0, color: '#fff', kind: 'box', text: '', alive: false };
@@ -19,24 +17,16 @@ window.MGS = window.MGS || {};
     p.color = '#fff'; p.kind = 'box'; p.text = '';
   }
 
-  function newSlick() {
-    return { x: 0, y: 0, r: 0, life: 0, alive: false };
-  }
-  function resetSlick(s) { s.x = s.y = 0; s.r = 46; s.life = 9; }
-
   var particles = new MGS.Pool(newParticle, resetParticle);
-  var slicks = new MGS.Pool(newSlick, resetSlick);
 
   var shake = 0;
   var flash = 0;
 
   var Effects = {
     particles: particles,
-    slicks: slicks,
 
     reset: function () {
       particles.clear();
-      slicks.clear();
       shake = 0;
       flash = 0;
     },
@@ -107,23 +97,6 @@ window.MGS = window.MGS || {};
       p.color = color || '#ffd23f';
     },
 
-    dropSlick: function (x, y) {
-      var s = slicks.spawn();
-      s.x = x; s.y = y;
-      s.r = 40 + Math.random() * 16;
-      s.life = 9;
-    },
-
-    /* Returns true if the point is sitting in oil. */
-    slickAt: function (x, y) {
-      var list = slicks.active;
-      for (var i = 0; i < list.length; i++) {
-        var s = list[i];
-        if (util.dist2(x, y, s.x, s.y) < s.r * s.r) return true;
-      }
-      return false;
-    },
-
     update: function (dt) {
       var list = particles.active, i, p;
       for (i = 0; i < list.length; i++) {
@@ -141,13 +114,6 @@ window.MGS = window.MGS || {};
         if (p.kind === 'text') p.vy += 40 * dt;
       }
       particles.sweep();
-
-      var sl = slicks.active;
-      for (i = 0; i < sl.length; i++) {
-        sl[i].life -= dt;
-        if (sl[i].life <= 0) slicks.release(sl[i]);
-      }
-      slicks.sweep();
 
       shake = Math.max(0, shake - shake * 6 * dt - 6 * dt);
       flash = Math.max(0, flash - flash * 7 * dt - 0.3 * dt);

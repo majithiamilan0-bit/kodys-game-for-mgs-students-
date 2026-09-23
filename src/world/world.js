@@ -23,6 +23,13 @@ window.MGS = window.MGS || {};
     desert: { ground: '#c2a163', ground2: '#b8985c', road: '#4a4438' }
   };
 
+  /* Which power-up a crate holds. MYSTERY is deliberately the most common so
+     most crates are a surprise. */
+  var CRATE_TABLE = [
+    'mystery', 'mystery', 'mystery', 'mystery',
+    'speed', 'speed', 'shield', 'drift', 'shooter', 'magnet', 'freeze', 'ghost'
+  ];
+
   var chunks = new Map();
   var active = [];
   var seed = 1;
@@ -86,7 +93,7 @@ window.MGS = window.MGS || {};
       var pw = bw * (0.45 + rng.next() * 0.4);
       var ph = bh * (0.45 + rng.next() * 0.4);
       chunk.obstacles.push(
-        obstacle(bx + (bw - pw) / 2, by + (bh - ph) / 2, pw, ph, 'water', '#2c6ea8', 0,
+        obstacle(bx + (bw - pw) / 2, by + (bh - ph) / 2, pw, ph, 'water', '#1a9be0', 0,
           { solid: false, deadly: true })
       );
       return;
@@ -142,6 +149,11 @@ window.MGS = window.MGS || {};
         taken: false
       });
     }
+    // Every compound is guaranteed a power-up - that is the point of finding one.
+    chunk.crates.push({
+      x: bx + bw * 0.5, y: by + bh * 0.72,
+      type: rng.pick(CRATE_TABLE), taken: false
+    });
     chunk.obstacles.push(
       obstacle(bx + bw * 0.4, by + bh * 0.4, 70, 70, 'crate', '#c8a24a', 40,
         { breakable: true, hp: 1 })
@@ -158,7 +170,8 @@ window.MGS = window.MGS || {};
       biome: biomeFor(cx, cy),
       secret: util.hash2(cx, cy, seed + 4242) < 0.045,
       obstacles: [],
-      pickups: []
+      pickups: [],
+      crates: []
     };
 
     var blocksPerChunk = C.CHUNK_TILES / C.ROAD_EVERY;
@@ -210,6 +223,8 @@ window.MGS = window.MGS || {};
             obstacle(px - 44, py - 30, 88, 60, 'ramp', '#c46b2a', 30,
               { solid: false, ramp: true })
           );
+        } else if (!junction && rng.chance(0.035)) {
+          chunk.crates.push({ x: px, y: py, type: rng.pick(CRATE_TABLE), taken: false });
         }
       }
     }
@@ -305,6 +320,22 @@ window.MGS = window.MGS || {};
           if (util.dist2(x, y, p.x, p.y) < r2) {
             p.taken = true;
             onTake(p);
+          }
+        }
+      }
+    },
+
+    /* Power-up crates. Never magnetised - you have to actually drive over them. */
+    collectCrates: function (x, y, radius, onTake) {
+      var r2 = radius * radius;
+      for (var i = 0; i < active.length; i++) {
+        var list = active[i].crates;
+        for (var j = 0; j < list.length; j++) {
+          var c = list[j];
+          if (c.taken) continue;
+          if (util.dist2(x, y, c.x, c.y) < r2) {
+            c.taken = true;
+            onTake(c);
           }
         }
       }
